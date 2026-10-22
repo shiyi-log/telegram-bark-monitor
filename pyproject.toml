@@ -19,7 +19,7 @@ bark-dashboard = "bark_monitor.dashboard:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0,<9",
+    "pytest>=8.0,<10",
     "pytest-asyncio>=0.23,<1",
     "ruff>=0.14,<1",
 ]
