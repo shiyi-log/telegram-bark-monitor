@@ -121,7 +121,12 @@ def test_dashboard_env_file_configures_logging_before_server_start(monkeypatch, 
     root = logging.getLogger()
     previous_level = root.level
     fake_uvicorn = ModuleType("uvicorn")
-    fake_uvicorn.run = lambda *args, **kwargs: None
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+
+    fake_uvicorn.run = fake_run
     monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
     monkeypatch.setattr(dashboard_module, "create_app", lambda: object())
 
@@ -129,6 +134,9 @@ def test_dashboard_env_file_configures_logging_before_server_start(monkeypatch, 
         assert dashboard_module.main(["--env-file", str(env_file)]) == 0
         assert log_file.is_file()
         assert root.level == logging.ERROR
+        assert captured["log_level"] is None
+        assert captured["log_config"] is None
+        assert captured["access_log"] is False
     finally:
         for key in ("BARK_LOG_FILE", "BARK_LOG_LEVEL", "BARK_CONFIG_FILE"):
             os.environ.pop(key, None)

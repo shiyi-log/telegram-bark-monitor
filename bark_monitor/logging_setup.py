@@ -167,13 +167,28 @@ def _log_file_path(environ: Mapping[str, str]) -> Path | None:
 
 
 def _secure_parent(path: Path) -> None:
-    """创建日志目录并限制为仅当前用户可访问。"""
+    """创建缺失的日志目录并限制新目录仅当前用户可访问。
 
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        pass
+    不修改已经存在的父目录权限，避免用户把日志放到共享目录或系统目录时
+    产生意外的全局权限副作用。
+    """
+
+    directory = path.parent
+    missing: list[Path] = []
+    while not directory.exists():
+        missing.append(directory)
+        if directory.parent == directory:
+            break
+        directory = directory.parent
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        try:
+            os.chmod(directory, 0o700)
+        except OSError:
+            pass
 
 
 def _secure_file(path: Path) -> None:

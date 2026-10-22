@@ -60,7 +60,7 @@ BARK_LOG_TO_FILE=true
 BARK_DASHBOARD_TOKEN=
 ```
 
-根目录 `.env` 是 Compose 插值输入，不会作为文件挂载到容器内；其中的 Telegram/Bark 配置项不会被读取。控制台和文件使用单行 JSON 格式。日志会自动隐藏 URL、Bearer 令牌、手机号、配置密钥和 Telethon 异常详情，不记录 Telegram 消息正文。`BARK_LOG_TO_FILE=false` 时只保留容器标准输出，可用 `docker compose logs` 查看。
+根目录 `.env` 是 Compose 插值输入，不会作为文件挂载到容器内；其中的 Telegram/Bark 配置项不会被读取。控制台和文件使用单行 JSON 格式。日志会自动隐藏 URL、Bearer 令牌、手机号、配置密钥和 Telethon 异常详情，不记录 Telegram 消息正文。Uvicorn 运行和错误日志并入统一处理器，逐请求访问日志关闭。新建日志目录使用 `0700` 权限，既有自定义目录保留原权限。`BARK_LOG_TO_FILE=false` 时只保留容器标准输出，可用 `docker compose logs` 查看。
 
 Compose 项目名前缀决定卷名；上例假设目录名为 `bark`，可用 `docker volume ls` 确认实际名称。执行 `docker compose down` 会保留数据。不要使用 `docker compose down -v`，它会删除持久卷。
 

@@ -109,3 +109,15 @@ def test_configure_logging_is_idempotent_and_rotates(monkeypatch, tmp_path: Path
     assert len(list(log_file.parent.glob("monitor.log*"))) <= 3
     assert log_file.stat().st_mode & 0o777 == 0o600
     assert log_file.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_existing_log_parent_permissions_are_not_changed(monkeypatch, tmp_path: Path):
+    existing_parent = tmp_path / "shared"
+    existing_parent.mkdir(mode=0o755)
+    log_file = existing_parent / "monitor.log"
+    monkeypatch.setenv("BARK_LOG_FILE", str(log_file))
+
+    configure_logging()
+
+    assert existing_parent.stat().st_mode & 0o777 == 0o755
+    assert log_file.stat().st_mode & 0o777 == 0o600

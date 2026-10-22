@@ -250,7 +250,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         _ensure_dashboard_token()
     import uvicorn
 
-    uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")
+    # 禁用 Uvicorn 自带的 handler，让错误日志沿 root logger 进入统一 JSON 脱敏链路。
+    # 访问日志关闭，避免重复输出并防止请求信息绕过管理面板日志处理器。
+    uvicorn.run(
+        create_app(),
+        host=args.host,
+        port=args.port,
+        log_level=None,
+        log_config=None,
+        access_log=False,
+    )
     return 0
 
 
