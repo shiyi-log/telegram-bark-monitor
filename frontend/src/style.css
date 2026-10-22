@@ -1,0 +1,89 @@
+:root {
+  --tblr-body-bg: #f6f8fb;
+}
+
+body {
+  min-width: 320px;
+}
+
+.navbar[data-bs-theme='dark'] {
+  background: #1d2735;
+}
+
+.navbar[data-bs-theme='dark'] .navbar-brand,
+.navbar[data-bs-theme='dark'] .navbar-brand:hover {
+  color: #fff;
+}
+
+.navbar .nav-item {
+  flex-direction: row;
+}
+
+.token-input {
+  width: min(34vw, 220px);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.token-input::placeholder {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.compact-details dt,
+.compact-details dd {
+  margin-bottom: 0.65rem;
+}
+
+.compact-details dd {
+  overflow-wrap: anywhere;
+}
+
+#logs-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.log-message {
+  overflow-wrap: anywhere;
+  font-family: var(--tblr-font-monospace);
+  font-size: 0.8rem;
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.form-label {
+  font-weight: 500;
+}
+
+.footer {
+  padding-bottom: 2rem;
+}
+
+@media (max-width: 575.98px) {
+  .navbar .container-xl {
+    gap: 0.5rem;
+  }
+
+  .navbar-brand {
+    font-size: 1rem;
+    min-width: 0;
+  }
+
+  .token-input {
+    width: 125px;
+    max-width: 40vw;
+  }
+}
+
+@media (max-width: 380px) {
+  .token-input {
+    width: 108px;
+  }
+
+  .navbar-brand .avatar {
+    margin-right: 0.25rem !important;
+  }
+}

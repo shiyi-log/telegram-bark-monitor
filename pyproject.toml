@@ -1,0 +1,67 @@
+[project]
+name = "telegram-bark-monitor"
+version = "0.1.0"
+description = "Forward incoming Telegram private messages to Bark"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.27,<1",
+    "python-dotenv>=1,<2",
+    "telethon>=1.36,<2",
+    "tzdata>=2024.1",
+    "uvicorn[standard]>=0.34,<1",
+]
+
+[project.scripts]
+bark-monitor = "bark_monitor.app:main"
+bark-dashboard = "bark_monitor.dashboard:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<1",
+    "ruff>=0.14,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bark_monitor"]
+
+# 源码包只收录可复现构建所需的源码和文档，避免把本机 node_modules、虚拟环境或运行数据发布出去。
+[tool.hatch.build.targets.sdist]
+include = [
+    "/bark_monitor",
+    "/frontend",
+    "/docs",
+    "/README.md",
+    "/LICENSE*",
+    "/NOTICE*",
+    "/pyproject.toml",
+    "/uv.lock",
+]
+exclude = [
+    "/frontend/node_modules",
+    "/frontend/dist",
+    "/.venv",
+    "/tests",
+    "/dist",
+    "/data",
+    "/.env*",
+    "/*.session*",
+]

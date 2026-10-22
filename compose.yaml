@@ -1,0 +1,44 @@
+services:
+  bark-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bark-monitor:local
+    container_name: bark-monitor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      BARK_DATA_DIR: /data
+      # 根目录 .env 只通过这些显式映射进入容器；Telegram/Bark 配置由面板写入 /data/.env。
+      TELEGRAM_SESSION: /data/telegram_session
+      # 留空时由应用在数据卷中生成并保存访问令牌。
+      BARK_DASHBOARD_TOKEN: ${BARK_DASHBOARD_TOKEN:-}
+      BARK_LOG_LEVEL: ${BARK_LOG_LEVEL:-INFO}
+      BARK_LOG_MAX_BYTES: ${BARK_LOG_MAX_BYTES:-5242880}
+      BARK_LOG_BACKUP_COUNT: ${BARK_LOG_BACKUP_COUNT:-5}
+      BARK_LOG_TO_FILE: ${BARK_LOG_TO_FILE:-true}
+      BARK_LOG_FILE: ${BARK_LOG_FILE:-}
+      BARK_LOG_DIR: ${BARK_LOG_DIR:-}
+    volumes:
+      - bark-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  bark-data:
