@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .app import configure_logging
 from .logging_setup import SafeRedactionFilter, redact_text
 from .service import MonitorService, ServiceError
@@ -117,7 +118,7 @@ def create_app(service: MonitorService | None = None) -> FastAPI:
             root_logger.removeHandler(log_handler)
             logger.info("管理面板已关闭")
 
-    app = FastAPI(title="Telegram Bark Monitor", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Telegram Bark Monitor", version=__version__, lifespan=lifespan)
     app.state.monitor = monitor
     app.state.log_handler = log_handler
 

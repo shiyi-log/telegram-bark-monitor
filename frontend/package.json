@@ -1,7 +1,7 @@
 {
   "name": "telegram-bark-monitor-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local operations UI for Telegram to Bark monitor",
   "type": "module",
   "engines": {
