@@ -146,7 +146,8 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes
           fi
-          release_id="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" --jq .id)"
+          # GitHub 的按 tag API 不返回 draft Release；gh release view 可以读取现有 draft。
+          release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)"
           printf 'id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Build the Fuwu manifest and exact checksums
