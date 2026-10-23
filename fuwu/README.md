@@ -1,6 +1,6 @@
 # Fuwu 集成
 
-`project.json` 是登记到 Fuwu 的公开项目元数据。它不包含 Fuwu 地址、账号、令牌或 GitHub 凭据。
+`project.json` 是登记到 Fuwu 的公开项目元数据，包含匿名下载地址，不包含账号、令牌或 GitHub 凭据。
 
 ## 本地登记与发布
 
