@@ -1,0 +1,138 @@
+name: Publish to Fuwu
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      channel:
+        default: stable
+        type: string
+      register_project:
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已公开的 GitHub Release 标签，例如 v0.1.1
+        required: true
+        type: string
+      channel:
+        description: Fuwu 发行渠道
+        default: stable
+        type: choice
+        options: [stable, beta]
+      register_project:
+        description: 首次接入时登记 Bark 项目（需要项目管理权限）
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuwu-${{ inputs.tag }}-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Stage and publish verified assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out integration client
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Check configuration
+        id: configuration
+        env:
+          FUWU_BASE_URL: ${{ vars.FUWU_BASE_URL }}
+          FUWU_TOKEN: ${{ secrets.FUWU_TOKEN }}
+          FUWU_USERNAME: ${{ secrets.FUWU_USERNAME }}
+          FUWU_PASSWORD: ${{ secrets.FUWU_PASSWORD }}
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "$FUWU_BASE_URL" ] && { [ -n "$FUWU_TOKEN" ] || { [ -n "$FUWU_USERNAME" ] && [ -n "$FUWU_PASSWORD" ]; }; }; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Fuwu 未发布：尚未配置服务地址或认证 secrets。' >> "$GITHUB_STEP_SUMMARY"
+            if [ "$MANUAL_RUN" = true ]; then
+              echo '手动补发需要先配置 FUWU_BASE_URL 和认证 secrets。' >&2
+              exit 1
+            fi
+          fi
+
+      - name: Download and bind the Release manifest
+        if: steps.configuration.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]\.[0-9]\.[0-9]$'
+          case "$RELEASE_CHANNEL" in stable|beta) ;; *) exit 1 ;; esac
+          git fetch --depth=1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git rev-parse "${RELEASE_TAG}^{commit}" > /tmp/release-revision
+          mkdir -p /tmp/fuwu-release
+          gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" > /tmp/release-metadata.json
+          gh release download "$RELEASE_TAG" --pattern manifest.json --dir /tmp/fuwu-release
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = json.loads(Path('/tmp/release-metadata.json').read_text())
+          manifest = json.loads(Path('/tmp/fuwu-release/manifest.json').read_text())
+          assert release['draft'] is False and release['prerelease'] is False
+          assert manifest['repository'] == os.environ['GITHUB_REPOSITORY']
+          assert manifest['tag'] == release['tag_name'] == os.environ['RELEASE_TAG']
+          assert manifest['revision'] == Path('/tmp/release-revision').read_text().strip()
+          assert str(manifest['releaseId']) == str(release['id'])
+          PY
+
+      - name: Register the Bark project
+        if: steps.configuration.outputs.ready == 'true' && inputs.register_project
+        env:
+          FUWU_BASE_URL: ${{ vars.FUWU_BASE_URL }}
+          FUWU_TOKEN: ${{ secrets.FUWU_TOKEN }}
+          FUWU_USERNAME: ${{ secrets.FUWU_USERNAME }}
+          FUWU_PASSWORD: ${{ secrets.FUWU_PASSWORD }}
+        run: python scripts/fuwu_release.py register --project bark --project-file fuwu/project.json
+
+      # 制品由 Fuwu 服务器直接下载，本 runner 只发送公开 manifest 和资产文件名。
+      - name: Stage remotely, publish and verify the release record
+        if: steps.configuration.outputs.ready == 'true'
+        env:
+          FUWU_BASE_URL: ${{ vars.FUWU_BASE_URL }}
+          FUWU_TOKEN: ${{ secrets.FUWU_TOKEN }}
+          FUWU_USERNAME: ${{ secrets.FUWU_USERNAME }}
+          FUWU_PASSWORD: ${{ secrets.FUWU_PASSWORD }}
+          FUWU_TIMEOUT_SECONDS: '1500'
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          python scripts/fuwu_release.py publish --project bark \
+            --channel "$RELEASE_CHANNEL" --manifest /tmp/fuwu-release/manifest.json
+          echo 'Fuwu 管理 API 发布与发行记录核验通过。' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify anonymous public object downloads
+        if: steps.configuration.outputs.ready == 'true'
+        env:
+          FUWU_PUBLIC_BASE_URL: ${{ vars.FUWU_PUBLIC_BASE_URL }}
+          FUWU_PUBLIC_PREFIX: ${{ vars.FUWU_PUBLIC_PREFIX }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          if [ -z "$FUWU_PUBLIC_BASE_URL" ]; then
+            echo '匿名下载尚未验收：未配置 FUWU_PUBLIC_BASE_URL。' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          prefix="${FUWU_PUBLIC_PREFIX:-releases}"
+          python scripts/verify_fuwu_public.py --base-url "$FUWU_PUBLIC_BASE_URL" \
+            --project bark --channel "$RELEASE_CHANNEL" --version "${RELEASE_TAG#v}" \
+            --revision "$(cat /tmp/release-revision)" \
+            --latest-key "${prefix}/bark/${RELEASE_CHANNEL}/latest.json"
+          echo '匿名 HTTPS 下载及全部资产 SHA256/size 核验通过。' >> "$GITHUB_STEP_SUMMARY"

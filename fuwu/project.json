@@ -1,0 +1,8 @@
+{
+  "id": "bark",
+  "name": "Telegram Bark Monitor",
+  "repository": "shiyi-log/telegram-bark-monitor",
+  "description": "监听 Telegram 私聊并通过 Bark 推送通知，使用 fuwu 提供可校验的版本发行物。",
+  "public_api": "通过 fuwu release-storage 的 stable channel latest.json、不可变 manifest 和 SHA256SUMS 获取发行物。",
+  "build_instructions": "下载官方发行中的 wheel 或源码包，先使用 SHA256SUMS 校验，再按 README 和部署指南安装。Docker 用户使用对应架构的归档或 GHCR 镜像，并保留版本与校验记录。"
+}

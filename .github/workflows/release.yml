@@ -84,12 +84,6 @@ jobs:
           print(f"verified {wheel.name} and {sdist.name}")
           PY
 
-      - name: Create checksums
-        working-directory: dist
-        run: |
-          sha256sum *.whl *.tar.gz > SHA256SUMS
-          sha256sum -c SHA256SUMS
-
       - name: Upload release files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -118,44 +112,119 @@ jobs:
   github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [distributions, container]
+    needs: [distributions, container-manifest]
     permissions:
       contents: write
     steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
       - name: Download release files
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: release-distributions
           path: dist
 
-      - name: Create or update GitHub Release
+      - name: Download Docker release assets
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: container-release-*
+          path: dist
+          merge-multiple: true
+
+      # 已公开的发行物不可覆盖；只允许继续先前失败留下的 draft。
+      - name: Prepare a draft Release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* --clobber
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           else
-            gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes
           fi
+          release_id="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" --jq .id)"
+          printf 'id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
 
-  container:
-    name: Publish multi-platform container
-    runs-on: ubuntu-latest
+      - name: Build the Fuwu manifest and exact checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          python scripts/build_release_manifest.py \
+            --dist dist --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --revision "$GITHUB_SHA" \
+            --release-id "$RELEASE_ID" --project bark --require-docker
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Publish verified Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          dist = Path('dist')
+          manifest = json.loads((dist / 'manifest.json').read_text())
+          names = sorted(
+              asset['path']
+              for group in manifest['assets'].values()
+              for asset in group
+          ) + ['manifest.json', 'SHA256SUMS']
+          assert len(names) == len(set(names))
+          assert all(Path(name).name == name for name in names)
+          assert all((dist / name).is_file() for name in names)
+          tag = os.environ['RELEASE_TAG']
+          # 仅上传清单声明的文件；失败 draft 中的旧资产也必须全部匹配后才能公开。
+          subprocess.run(
+              ['gh', 'release', 'upload', tag, *[str(dist / name) for name in names], '--clobber'],
+              check=True,
+          )
+          release = json.loads(subprocess.check_output(
+              ['gh', 'release', 'view', tag, '--json', 'isDraft,assets'], text=True,
+          ))
+          assert release['isDraft'], 'Release must remain a draft until assets are verified'
+          actual_names = [asset['name'] for asset in release['assets']]
+          assert sorted(actual_names) == sorted(names), 'Release assets differ from the manifest'
+          subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--latest'], check=True)
+          PY
+
+  container-arch:
+    name: Build and smoke ${{ matrix.arch }} image
+    runs-on: ${{ matrix.runner }}
     needs: [distributions, smoke]
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.29.1
 
       - name: Sign in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -173,22 +242,200 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
 
-      - name: Build and publish image
+      # 每个架构只推送不可变 digest，避免 smoke 检查到的对象与最终发布对象不一致。
+      - name: Build and publish image by digest
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: mode=max
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
 
-      - name: Verify published multi-platform manifest
+      - name: Save image digest
         env:
-          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          image_ref="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
-          manifest="$(docker buildx imagetools inspect "$image_ref")"
-          printf '%s\n' "$manifest" | grep -q 'linux/amd64'
-          printf '%s\n' "$manifest" | grep -q 'linux/arm64'
+          test -n "$IMAGE_DIGEST"
+          case "$IMAGE_DIGEST" in
+            sha256:????????????????????????????????????????????????????????????????) ;;
+            *) echo "Unexpected image digest: $IMAGE_DIGEST" >&2; exit 1 ;;
+          esac
+          mkdir -p /tmp/digests
+          printf '%s\n' "${IMAGE_DIGEST#sha256:}" > "/tmp/digests/${{ matrix.arch }}"
+
+      - name: Smoke test the exact published digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: python .github/scripts/docker_smoke.py "ghcr.io/${{ github.repository }}@${IMAGE_DIGEST}"
+
+      # Fuwu 下载实际归档；GHCR 引用本身不能作为待下载的文件。
+      - name: Export the verified image archive
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          IMAGE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY}"
+          archive_tag="${image}:${version}-${IMAGE_ARCH}"
+          # 按不可变 digest 明确拉取目标架构，保证 save 使用刚通过冒烟的镜像。
+          docker pull --platform "$IMAGE_PLATFORM" "${image}@${IMAGE_DIGEST}"
+          platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${image}@${IMAGE_DIGEST}")"
+          test "$platform" = "$IMAGE_PLATFORM"
+          docker tag "${image}@${IMAGE_DIGEST}" "$archive_tag"
+          mkdir -p /tmp/release-assets
+          docker save "$archive_tag" | gzip -n > "/tmp/release-assets/telegram_bark_monitor-${version}-linux-${IMAGE_ARCH}.docker.tar.gz"
+
+      - name: Upload image archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-release-${{ matrix.arch }}
+          path: /tmp/release-assets/*.docker.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-digest-${{ matrix.arch }}
+          path: /tmp/digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  container-manifest:
+    name: Publish multi-platform container manifest
+    runs-on: ubuntu-24.04
+    needs: container-arch
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.29.1
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Download image digests
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: container-digest-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Validate and merge image manifest
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$(wc -c < /tmp/digests/amd64)" -eq 65
+          test "$(wc -c < /tmp/digests/arm64)" -eq 65
+          amd64_digest="$(cat /tmp/digests/amd64)"
+          arm64_digest="$(cat /tmp/digests/arm64)"
+          printf '%s\n' "$amd64_digest" | grep -Eq '^[0-9a-f]{64}$'
+          printf '%s\n' "$arm64_digest" | grep -Eq '^[0-9a-f]{64}$'
+          amd64="ghcr.io/${{ github.repository }}@sha256:${amd64_digest}"
+          arm64="ghcr.io/${{ github.repository }}@sha256:${arm64_digest}"
+          version="${RELEASE_VERSION#v}"
+          docker buildx imagetools create \
+            --tag "ghcr.io/${{ github.repository }}:${version}" \
+            --tag "ghcr.io/${{ github.repository }}:latest" \
+            "$amd64" "$arm64"
+          # v0.29.1 的 raw 输出保留 registry 原始字节且不追加换行，可直接计算 digest。
+          docker buildx imagetools inspect --raw "ghcr.io/${{ github.repository }}:${version}" > /tmp/container-index.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+
+          raw = Path('/tmp/container-index.json').read_bytes()
+          index = json.loads(raw)
+          assert index['schemaVersion'] == 2
+          assert index['mediaType'] in {
+              'application/vnd.oci.image.index.v1+json',
+              'application/vnd.docker.distribution.manifest.list.v2+json',
+          }
+          platforms = []
+          for descriptor in index['manifests']:
+              assert re.fullmatch(r'sha256:[0-9a-f]{64}', descriptor['digest'])
+              platform = descriptor.get('platform', {})
+              pair = (platform.get('os'), platform.get('architecture'))
+              # provenance 证明可能附带 unknown/unknown 描述符，不作为可运行架构。
+              if pair != ('unknown', 'unknown'):
+                  platforms.append(pair)
+          assert sorted(platforms) == [('linux', 'amd64'), ('linux', 'arm64')], platforms
+          digest = f'sha256:{hashlib.sha256(raw).hexdigest()}'
+          Path('/tmp/container-index.digest').write_text(digest + '\n')
+          print(f'verified {digest}: linux/amd64, linux/arm64')
+          PY
+          digest="$(cat /tmp/container-index.digest)"
+          docker buildx imagetools inspect --raw "ghcr.io/${{ github.repository }}@${digest}" > /tmp/container-index-verified.json
+          cmp /tmp/container-index.json /tmp/container-index-verified.json
+
+      - name: Create immutable image metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p /tmp/release-assets
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          raw = Path('/tmp/container-index-verified.json').read_bytes()
+          digest = f'sha256:{hashlib.sha256(raw).hexdigest()}'
+          assert digest == Path('/tmp/container-index.digest').read_text().strip()
+          assert re.fullmatch(r'sha256:[0-9a-f]{64}', digest)
+          images = []
+          for arch in ('amd64', 'arm64'):
+              platform_digest = Path(f'/tmp/digests/{arch}').read_text().strip()
+              assert re.fullmatch(r'[0-9a-f]{64}', platform_digest)
+              images.append({'platform': f'linux/{arch}', 'digest': f'sha256:{platform_digest}'})
+          result = {
+              'schemaVersion': 1,
+              'repository': f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}",
+              'version': os.environ['RELEASE_TAG'].removeprefix('v'),
+              'revision': os.environ['GITHUB_SHA'],
+              'digest': digest,
+              'images': images,
+          }
+          Path('/tmp/release-assets/container-image.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n'
+          )
+          PY
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-release-metadata
+          path: /tmp/release-assets/container-image.json
+          if-no-files-found: error
+          retention-days: 7
+
+  fuwu:
+    name: Publish to Fuwu
+    needs: github-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/fuwu-publish.yml
+    with:
+      tag: ${{ github.ref_name }}
+      channel: stable
+    secrets: inherit
