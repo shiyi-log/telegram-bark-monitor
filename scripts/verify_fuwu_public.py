@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从公开对象根地址验证 Fuwu 的 latest、manifest、校验和及发布资产。
+"""验证 Fuwu 的 latest、manifest、校验和及发布资产。
 
 验证器不需要登录凭据，也不会给任何请求添加 ``Authorization``。对象资产使用
 逐块读取计算 SHA-256，适合验证较大的 Docker 归档。错误信息只包含固定的契约
@@ -194,6 +194,29 @@ def _object_url(base_url: str, key: str) -> str:
     return url
 
 
+def _api_download_url(
+    base_url: str,
+    *,
+    project: str,
+    version: str,
+    name: str,
+    latest: bool = False,
+    channel: str = "stable",
+) -> str:
+    """只根据已验证的发布字段构造匿名 API 路径，不接受任意对象 key。"""
+    _validate_key(name, field="下载文件名")
+    if "/" in name:
+        _fail("下载文件名必须是文件名")
+    if latest:
+        route = f"api/downloads/{project}/{channel}/latest.json"
+    else:
+        route = f"api/downloads/{project}/{version}/{name}"
+    url = base_url + urllib.parse.quote(route, safe="/-._~")
+    if _origin(url) != _origin(base_url):
+        _fail("公开对象请求不在同一来源")
+    return url
+
+
 def _coerce_response(value: Any) -> HttpResponse:
     """兼容测试 fake transport 的 bytes、tuple 和响应对象。"""
     if isinstance(value, HttpResponse):
@@ -255,10 +278,13 @@ def _read_bytes(transport: Any, url: str, *, limit: int = _METADATA_LIMIT) -> by
     return b"".join(chunks)
 
 
-def _read_json(
-    transport: Any, base_url: str, key: str, *, field: str
-) -> tuple[dict[str, Any], bytes]:
-    body = _read_bytes(transport, _object_url(base_url, key))
+def _read_bytes_url(transport: Any, url: str, *, limit: int = _METADATA_LIMIT) -> bytes:
+    """从已解析并校验的公开地址读取元数据。"""
+    return _read_bytes(transport, url, limit=limit)
+
+
+def _read_json_url(transport: Any, url: str, *, field: str) -> tuple[dict[str, Any], bytes]:
+    body = _read_bytes_url(transport, url)
     try:
         value = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_json_object)
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -266,6 +292,12 @@ def _read_json(
     if not isinstance(value, dict):
         _fail(f"{field} 必须是 JSON 对象")
     return value, body
+
+
+def _read_json(
+    transport: Any, base_url: str, key: str, *, field: str
+) -> tuple[dict[str, Any], bytes]:
+    return _read_json_url(transport, _object_url(base_url, key), field=field)
 
 
 def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -416,10 +448,17 @@ def verify_public_release(
     version: str,
     revision: str,
     latest_key: str | None = None,
+    download_mode: str = "object",
     transport: Any | None = None,
 ) -> dict[str, Any]:
-    """验证一个公开 Fuwu 发布，返回可供 CI 使用的无秘密摘要。"""
+    """验证一个公开 Fuwu 发布，返回可供 CI 使用的无秘密摘要。
+
+    ``object`` 读取对象存储根地址；``api`` 读取 Fuwu 的匿名 API 路由，
+    适用于对象存储不直接暴露而由 Fuwu 负责校验和流式转发的部署。
+    """
     base = _validate_base_url(base_url)
+    if download_mode not in {"object", "api"}:
+        _fail("download_mode 无效")
     if (
         not isinstance(project, str)
         or _PROJECT_RE.fullmatch(project) is None
@@ -433,23 +472,49 @@ def verify_public_release(
         or channel not in {"stable", "beta"}
     ):
         _fail("channel 无效")
+    if download_mode == "api" and channel != "stable":
+        _fail("Fuwu 匿名 API 当前只支持 stable")
     if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
         _fail("version 无效")
     if not isinstance(revision, str) or _REVISION_RE.fullmatch(revision) is None:
         _fail("revision 无效")
     revision = revision.lower()
+    if download_mode == "api" and latest_key is not None:
+        _fail("api 模式不接受 latest key")
     latest = _validate_key(
         latest_key or f"releases/{project}/{channel}/latest.json", field="latest key"
     )
     client = transport or UrlTransport()
-    pointer, pointer_body = _read_json(client, base, latest, field="latest")
+    latest_url = (
+        _api_download_url(
+            base,
+            project=project,
+            version=version,
+            name="latest.json",
+            latest=True,
+            channel=channel,
+        )
+        if download_mode == "api"
+        else _object_url(base, latest)
+    )
+    pointer, pointer_body = _read_json_url(client, latest_url, field="latest")
     manifest_key = _validate_metadata(
         pointer, project=project, channel=channel, version=version, revision=revision
     )
     if not manifest_key.endswith(f"/{project}/v{version}/manifest.json"):
         _fail("manifestKey 不属于目标发布")
     immutable_prefix = manifest_key.removesuffix("manifest.json")
-    manifest, manifest_body = _read_json(client, base, manifest_key, field="manifest")
+    manifest_url = (
+        _api_download_url(
+            base,
+            project=project,
+            version=version,
+            name="manifest.json",
+        )
+        if download_mode == "api"
+        else _object_url(base, manifest_key)
+    )
+    manifest, manifest_body = _read_json_url(client, manifest_url, field="manifest")
     if (
         _validate_sha256(pointer.get("manifestSha256"), field="latest manifestSha256")
         != hashlib.sha256(manifest_body).hexdigest()
@@ -468,7 +533,12 @@ def verify_public_release(
         _fail("checksums key 不属于目标发布")
     if checksums.get("name") != "SHA256SUMS":
         _fail("checksums 名称无效")
-    checksum_body = _read_bytes(client, _object_url(base, checksum_key))
+    checksum_url = (
+        _api_download_url(base, project=project, version=version, name="SHA256SUMS")
+        if download_mode == "api"
+        else _object_url(base, checksum_key)
+    )
+    checksum_body = _read_bytes_url(client, checksum_url)
     checksum_digest = hashlib.sha256(checksum_body).hexdigest()
     if _validate_sha256(checksums.get("sha256"), field="checksums sha256") != checksum_digest:
         _fail("SHA256SUMS 摘要不匹配")
@@ -489,7 +559,12 @@ def verify_public_release(
     results: list[dict[str, Any]] = []
     total_size = 0
     for entry in entries:
-        response = _get_response(client, _object_url(base, entry["key"]))
+        asset_url = (
+            _api_download_url(base, project=project, version=version, name=entry["name"])
+            if download_mode == "api"
+            else _object_url(base, entry["key"])
+        )
+        response = _get_response(client, asset_url)
         digest = hashlib.sha256()
         size = 0
         try:
@@ -522,24 +597,35 @@ def verify_public_release(
         "channel": channel,
         "version": version,
         "revision": revision,
-        "latestKey": latest,
+        "latestKey": (
+            latest
+            if download_mode == "object"
+            else f"api/downloads/{project}/{channel}/latest.json"
+        ),
         "manifestKey": manifest_key,
         "checksumsKey": checksum_key,
         "assetCount": len(results),
         "totalSize": total_size,
         "assets": results,
         "latestSha256": hashlib.sha256(pointer_body).hexdigest(),
+        "downloadMode": download_mode,
     }
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="验证 Fuwu 公开发布对象")
-    parser.add_argument("--base-url", required=True, help="对象存储公开根地址")
+    parser.add_argument("--base-url", required=True, help="对象存储根地址或 Fuwu 服务地址")
     parser.add_argument("--project", required=True, help="Fuwu 项目 ID")
     parser.add_argument("--channel", default="stable", help="发布通道，默认 stable")
     parser.add_argument("--version", required=True, help="三段式版本，例如 0.1.1")
     parser.add_argument("--revision", required=True, help="40 位 Git revision")
     parser.add_argument("--latest-key", help="latest.json 对象 key，默认按项目和通道推导")
+    parser.add_argument(
+        "--download-mode",
+        choices=("object", "api"),
+        default="object",
+        help="下载方式：object 读取对象根，api 读取 Fuwu 匿名下载接口",
+    )
     return parser
 
 
@@ -553,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
             version=args.version,
             revision=args.revision,
             latest_key=args.latest_key,
+            download_mode=args.download_mode,
         )
     except PublicVerificationError as error:
         print(f"验证失败：{error}", file=sys.stderr)

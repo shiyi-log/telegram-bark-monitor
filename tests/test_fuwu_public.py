@@ -48,6 +48,23 @@ class FakeTransport:
         return self.objects[key]
 
 
+class ApiTransport(FakeTransport):
+    """把 Fuwu 匿名 API 路径映射到同一组测试对象。"""
+
+    def get(self, url: str) -> bytes:
+        self.requests.append(url)
+        path = url.removeprefix(BASE)
+        if path == "api/downloads/bark/stable/latest.json":
+            key = LATEST
+        elif path.startswith("api/downloads/bark/0.1.1/"):
+            key = PREFIX + path.rsplit("/", 1)[-1]
+        else:
+            key = path
+        if key not in self.objects:
+            return HttpResponse(status=404, headers={}, body=b"server token=private")  # type: ignore[return-value]
+        return self.objects[key]
+
+
 def _bundle(
     *,
     prefix: str = PREFIX,
@@ -171,6 +188,62 @@ def test_custom_latest_key_and_storage_prefix_are_supported() -> None:
 
     assert result["manifestKey"] == prefix + "manifest.json"
     assert result["latestKey"] == latest_key
+
+
+def test_fuwu_api_mode_uses_latest_and_versioned_anonymous_routes() -> None:
+    objects, _, _ = _bundle()
+    transport = ApiTransport(objects)
+
+    result = verify_public_release(
+        BASE,
+        project="bark",
+        channel="stable",
+        version="0.1.1",
+        revision=REVISION,
+        download_mode="api",
+        transport=transport,
+    )
+
+    assert result["status"] == "verified"
+    assert result["downloadMode"] == "api"
+    assert result["latestKey"] == "api/downloads/bark/stable/latest.json"
+    assert transport.requests[0] == BASE + "api/downloads/bark/stable/latest.json"
+    assert all("releases/" not in url for url in transport.requests)
+    assert any(url.endswith("/manifest.json") for url in transport.requests)
+    assert any(url.endswith("/SHA256SUMS") for url in transport.requests)
+
+
+def test_api_mode_rejects_a_custom_latest_object_key() -> None:
+    objects, _, _ = _bundle()
+    with pytest.raises(PublicVerificationError, match="api 模式"):
+        verify_public_release(
+            BASE,
+            project="bark",
+            channel="stable",
+            version="0.1.1",
+            revision=REVISION,
+            latest_key="../private/latest.json",
+            download_mode="api",
+            transport=ApiTransport(objects),
+        )
+
+
+def test_fuwu_api_mode_rejects_beta_before_network_requests() -> None:
+    objects, _, _ = _bundle()
+    transport = ApiTransport(objects)
+
+    with pytest.raises(PublicVerificationError, match="只支持 stable"):
+        verify_public_release(
+            BASE,
+            project="bark",
+            channel="beta",
+            version="0.1.1",
+            revision=REVISION,
+            download_mode="api",
+            transport=transport,
+        )
+
+    assert transport.requests == []
 
 
 @pytest.mark.parametrize(

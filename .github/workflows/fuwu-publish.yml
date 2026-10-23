@@ -47,19 +47,34 @@ jobs:
       - name: Check configuration
         id: configuration
         env:
+          FUWU_ENABLED: ${{ vars.FUWU_ENABLED }}
           FUWU_BASE_URL: ${{ vars.FUWU_BASE_URL }}
+          FUWU_PUBLIC_BASE_URL: ${{ vars.FUWU_PUBLIC_BASE_URL }}
           FUWU_TOKEN: ${{ secrets.FUWU_TOKEN }}
           FUWU_USERNAME: ${{ secrets.FUWU_USERNAME }}
           FUWU_PASSWORD: ${{ secrets.FUWU_PASSWORD }}
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          if [ -n "$FUWU_BASE_URL" ] && { [ -n "$FUWU_TOKEN" ] || { [ -n "$FUWU_USERNAME" ] && [ -n "$FUWU_PASSWORD" ]; }; }; then
+          enabled="$(printf '%s' "$FUWU_ENABLED" | tr '[:upper:]' '[:lower:]')"
+          case "$enabled" in
+            true|false|'') ;;
+            *) echo 'FUWU_ENABLED 必须为 true 或 false。' >&2; exit 1 ;;
+          esac
+          credentials_ready=false
+          if [ -n "$FUWU_TOKEN" ] || { [ -n "$FUWU_USERNAME" ] && [ -n "$FUWU_PASSWORD" ]; }; then
+            credentials_ready=true
+          fi
+          if [ "$enabled" = true ]; then
+            if [ -z "$FUWU_BASE_URL" ] || [ "$credentials_ready" != true ] || [ -z "$FUWU_PUBLIC_BASE_URL" ]; then
+              echo 'FUWU_ENABLED=true 时必须配置 FUWU_BASE_URL、匿名下载基地址和认证 secrets。' >&2
+              exit 1
+            fi
             echo 'ready=true' >> "$GITHUB_OUTPUT"
           else
             echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo 'Fuwu 未发布：尚未配置服务地址或认证 secrets。' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Fuwu 发布已禁用：设置 FUWU_ENABLED=true 并配置服务地址与认证后才会发布。' >> "$GITHUB_STEP_SUMMARY"
             if [ "$MANUAL_RUN" = true ]; then
-              echo '手动补发需要先配置 FUWU_BASE_URL 和认证 secrets。' >&2
+              echo '手动补发需要设置 FUWU_ENABLED=true，并配置 FUWU_BASE_URL 和认证 secrets。' >&2
               exit 1
             fi
           fi
@@ -71,10 +86,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_CHANNEL: ${{ inputs.channel }}
+          FUWU_PUBLIC_MODE: ${{ vars.FUWU_PUBLIC_MODE }}
         run: |
           set -euo pipefail
           printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]\.[0-9]\.[0-9]$'
           case "$RELEASE_CHANNEL" in stable|beta) ;; *) exit 1 ;; esac
+          mode="${FUWU_PUBLIC_MODE:-object}"
+          case "$mode" in object|api) ;; *) echo 'FUWU_PUBLIC_MODE 必须为 object 或 api。' >&2; exit 1 ;; esac
+          if [ "$mode" = api ] && [ "$RELEASE_CHANNEL" = beta ]; then
+            echo 'Fuwu 匿名 API 当前只支持 stable，api 模式不能发布 beta。' >&2
+            exit 1
+          fi
           git fetch --depth=1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           git rev-parse "${RELEASE_TAG}^{commit}" > /tmp/release-revision
           mkdir -p /tmp/fuwu-release
@@ -118,21 +140,32 @@ jobs:
             --channel "$RELEASE_CHANNEL" --manifest /tmp/fuwu-release/manifest.json
           echo 'Fuwu 管理 API 发布与发行记录核验通过。' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify anonymous public object downloads
+      - name: Verify anonymous public downloads
         if: steps.configuration.outputs.ready == 'true'
         env:
           FUWU_PUBLIC_BASE_URL: ${{ vars.FUWU_PUBLIC_BASE_URL }}
           FUWU_PUBLIC_PREFIX: ${{ vars.FUWU_PUBLIC_PREFIX }}
+          FUWU_PUBLIC_MODE: ${{ vars.FUWU_PUBLIC_MODE }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_CHANNEL: ${{ inputs.channel }}
         run: |
           if [ -z "$FUWU_PUBLIC_BASE_URL" ]; then
-            echo '匿名下载尚未验收：未配置 FUWU_PUBLIC_BASE_URL。' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo '必须配置 FUWU_PUBLIC_BASE_URL，匿名下载验收不能跳过。' >&2
+            exit 1
           fi
-          prefix="${FUWU_PUBLIC_PREFIX:-releases}"
-          python scripts/verify_fuwu_public.py --base-url "$FUWU_PUBLIC_BASE_URL" \
-            --project bark --channel "$RELEASE_CHANNEL" --version "${RELEASE_TAG#v}" \
-            --revision "$(cat /tmp/release-revision)" \
-            --latest-key "${prefix}/bark/${RELEASE_CHANNEL}/latest.json"
+          mode="${FUWU_PUBLIC_MODE:-object}"
+          case "$mode" in object|api) ;; *) echo 'FUWU_PUBLIC_MODE 必须为 object 或 api。' >&2; exit 1 ;; esac
+          args=(
+            --base-url "$FUWU_PUBLIC_BASE_URL"
+            --project bark
+            --channel "$RELEASE_CHANNEL"
+            --version "${RELEASE_TAG#v}"
+            --revision "$(cat /tmp/release-revision)"
+            --download-mode "$mode"
+          )
+          if [ "$mode" = object ]; then
+            prefix="${FUWU_PUBLIC_PREFIX:-releases}"
+            args+=(--latest-key "${prefix}/bark/${RELEASE_CHANNEL}/latest.json")
+          fi
+          python scripts/verify_fuwu_public.py "${args[@]}"
           echo '匿名 HTTPS 下载及全部资产 SHA256/size 核验通过。' >> "$GITHUB_STEP_SUMMARY"
