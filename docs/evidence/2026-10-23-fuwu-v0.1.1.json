@@ -1,0 +1,168 @@
+{
+  "evidenceVersion": 1,
+  "observedAt": "2026-10-23T15:31:25Z",
+  "repository": "shiyi-log/telegram-bark-monitor",
+  "tag": "v0.1.1",
+  "version": "0.1.1",
+  "revision": "93a7ef20e6225b1b9937a356d7ec9ac6fd832acd",
+  "githubRelease": {
+    "releaseId": "421781368",
+    "url": "https://github.com/shiyi-log/telegram-bark-monitor/releases/tag/v0.1.1",
+    "publishedAt": "2026-10-23T11:50:12Z",
+    "isDraft": false,
+    "isPrerelease": false,
+    "assets": [
+      {
+        "name": "container-image.json",
+        "size": 541,
+        "sha256": "0b98c5c74550f156989561e7780247f5f2d427a4dc24cd7350d3c1a0bb463aa7"
+      },
+      {
+        "name": "telegram_bark_monitor-0.1.1-linux-amd64.docker.tar.gz",
+        "size": 90387460,
+        "sha256": "a15cd60598baaac23be634632e66587df178f0a9ecfb98d734b5e78dfc73d9b6"
+      },
+      {
+        "name": "telegram_bark_monitor-0.1.1-linux-arm64.docker.tar.gz",
+        "size": 88768275,
+        "sha256": "2b6f38e4d7a99e71c1bf892d2c69c05a9883ae1283696514ef01f5e9823f3c5e"
+      },
+      {
+        "name": "telegram_bark_monitor-0.1.1-py3-none-any.whl",
+        "size": 149835,
+        "sha256": "c7de6c05ebc76f1ba2a2b72ce887a31d5472021ad51435f49cbb162991e2494c"
+      },
+      {
+        "name": "telegram_bark_monitor-0.1.1.tar.gz",
+        "size": 220996,
+        "sha256": "0725520850076c9c4b10342869be59c4f4deb5dc342b632fc9d1fefa4c3f3d54"
+      },
+      {
+        "name": "manifest.json",
+        "size": 1681,
+        "sha256": "d3a3c697805e224d541617202832e092e805118da6d72348e1d5f8716833833b"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 539,
+        "sha256": "ce9f0262f76774ff0676f3191703f09072b2eada0d78214da71ff29d2a0c2106"
+      }
+    ]
+  },
+  "fuwu": {
+    "baseUrl": "https://fuwu.1213.cc",
+    "publicBaseUrl": "https://fuwu.1213.cc",
+    "project": "bark",
+    "channel": "stable",
+    "publish": {
+      "source": "Fuwu 管理页面的已登录发布记录；凭据未记录",
+      "status": "published",
+      "latest": true,
+      "objectHeadStatus": "verified",
+      "uiPublishedAt": "2026-10-23T15:05:20Z",
+      "uiPublishedAtSource": "Fuwu 管理页面发布流程交接记录；凭据未记录"
+    },
+    "latestUrl": "https://fuwu.1213.cc/api/downloads/bark/stable/latest.json",
+    "latest": {
+      "channel": "stable",
+      "immutable": true,
+      "manifestKey": "releases/bark/v0.1.1/manifest.json",
+      "manifestSha256": "cb278ec0ed8b778ec2481bfa9fb1255f7fb3e2cbd502315c4a79f0054d20de6f",
+      "project": "bark",
+      "releaseId": "421781368",
+      "revision": "93a7ef20e6225b1b9937a356d7ec9ac6fd832acd",
+      "tag": "v0.1.1",
+      "version": "0.1.1"
+    },
+    "manifestUrl": "https://fuwu.1213.cc/api/downloads/bark/0.1.1/manifest.json",
+    "manifest": {
+      "repository": "shiyi-log/telegram-bark-monitor",
+      "releaseId": "421781368",
+      "revision": "93a7ef20e6225b1b9937a356d7ec9ac6fd832acd",
+      "tag": "v0.1.1",
+      "version": "0.1.1",
+      "checksumsSha256": "ce9f0262f76774ff0676f3191703f09072b2eada0d78214da71ff29d2a0c2106",
+      "publishedAt": "2026-10-23T14:39:41Z",
+      "publishedAtSource": "Fuwu 公开 manifest 响应"
+    }
+  },
+  "timingNotes": [
+    "管理页面交接记录的发布时间为 2026-10-23T15:05:20Z（北京时间 2026-10-23 23:05:20）；公开 manifest 的发布时间为 2026-10-23T14:39:41Z。两者是不同来源的观测，间隔 25 分 39 秒，不合并为同一个发布时间。",
+    "Fuwu manifest 是发行存储生成的规范化对象；其字节摘要与 GitHub Release 中的原始 manifest 摘要可以不同，但仓库、Release ID、tag、version、revision 和资产校验值一致。"
+  ],
+  "anonymousVerification": {
+    "command": "SSL_CERT_FILE=/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/certifi/cacert.pem uv run python scripts/verify_fuwu_public.py --base-url https://fuwu.1213.cc --project bark --channel stable --version 0.1.1 --revision 93a7ef20e6225b1b9937a356d7ec9ac6fd832acd --download-mode api",
+    "exitCode": 0,
+    "result": {
+      "status": "verified",
+      "project": "bark",
+      "channel": "stable",
+      "version": "0.1.1",
+      "revision": "93a7ef20e6225b1b9937a356d7ec9ac6fd832acd",
+      "latestKey": "api/downloads/bark/stable/latest.json",
+      "manifestKey": "releases/bark/v0.1.1/manifest.json",
+      "checksumsKey": "releases/bark/v0.1.1/SHA256SUMS",
+      "latestSha256": "d6bb43a9203d5a2275e208a2d5b62b389e363a7b66f891d362aa3c2d2bdf9b5b",
+      "downloadMode": "api",
+      "assetCount": 5,
+      "totalSize": 179527107,
+      "assets": [
+        {
+          "group": "docker",
+          "name": "container-image.json",
+          "size": 541,
+          "sha256": "0b98c5c74550f156989561e7780247f5f2d427a4dc24cd7350d3c1a0bb463aa7"
+        },
+        {
+          "group": "docker",
+          "name": "telegram_bark_monitor-0.1.1-linux-amd64.docker.tar.gz",
+          "size": 90387460,
+          "sha256": "a15cd60598baaac23be634632e66587df178f0a9ecfb98d734b5e78dfc73d9b6"
+        },
+        {
+          "group": "docker",
+          "name": "telegram_bark_monitor-0.1.1-linux-arm64.docker.tar.gz",
+          "size": 88768275,
+          "sha256": "2b6f38e4d7a99e71c1bf892d2c69c05a9883ae1283696514ef01f5e9823f3c5e"
+        },
+        {
+          "group": "python",
+          "name": "telegram_bark_monitor-0.1.1-py3-none-any.whl",
+          "size": 149835,
+          "sha256": "c7de6c05ebc76f1ba2a2b72ce887a31d5472021ad51435f49cbb162991e2494c"
+        },
+        {
+          "group": "python",
+          "name": "telegram_bark_monitor-0.1.1.tar.gz",
+          "size": 220996,
+          "sha256": "0725520850076c9c4b10342869be59c4f4deb5dc342b632fc9d1fefa4c3f3d54"
+        }
+      ]
+    }
+  },
+  "ci": {
+    "releaseWorkflowRun": {
+      "id": 39948595010,
+      "url": "https://github.com/shiyi-log/telegram-bark-monitor/actions/runs/39948595010",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "fuwuWorkflowInReleaseRun": {
+      "status": "completed",
+      "conclusion": "success",
+      "publishSteps": "skipped",
+      "reason": "FUWU_ENABLED=false"
+    }
+  },
+  "boundaries": {
+    "verified": [
+      "GitHub Release v0.1.1 exists",
+      "Fuwu stable release is published and its object HEAD checks are verified",
+      "Anonymous API downloads of latest, manifest, SHA256SUMS and all five release assets pass size and SHA-256 verification"
+    ],
+    "notVerified": [
+      "Telegram login or message reception",
+      "End-to-end Bark push delivery"
+    ]
+  }
+}

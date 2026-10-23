@@ -77,7 +77,10 @@ class UrlTransport:
         """获取一个对象；调用方负责关闭响应。"""
         request = urllib.request.Request(
             url,
-            headers={"Accept": "application/json, text/plain, */*"},
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "User-Agent": "telegram-bark-monitor-release-verifier/1",
+            },
             method="GET",
         )
         try:

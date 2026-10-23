@@ -515,6 +515,10 @@ def test_real_loopback_http_is_anonymous_and_redirects_fail() -> None:
         server.server_close()
     assert headers_seen
     assert all(
+        headers.get("User-Agent") == "telegram-bark-monitor-release-verifier/1"
+        for headers in headers_seen
+    )
+    assert all(
         not any(
             name.lower() in {"authorization", "proxy-authorization", "cookie"} for name in headers
         )
