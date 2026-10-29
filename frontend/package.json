@@ -13,7 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tabler/core": "1.6.1"
+    "@tabler/core": "1.7.1"
   },
   "devDependencies": {
     "vite": "8.3.5"
